@@ -216,31 +216,6 @@ button.go{padding:6px 14px;border-radius:8px;border:none;
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:#1e2d47;border-radius:2px}
-.evo-container{background:var(--card);border:1px solid var(--border);border-radius:14px;
-  padding:1rem;margin-bottom:.75rem}
-.evo-chart-wrap{position:relative;width:100%;
-  height:clamp(280px,45vh,480px);  /* se adapta: más en desktop, menos en móvil */
-  margin-bottom:1rem}
-#evo-canvas{width:100%;height:100%;display:block;cursor:crosshair}
-.evo-tooltip{position:absolute;background:rgba(8,13,26,.95);border:1px solid var(--border);
-  border-radius:8px;padding:8px 10px;font-size:.72rem;pointer-events:none;
-  white-space:nowrap;z-index:10;display:none;max-width:280px;white-space:normal;
-  box-shadow:0 4px 16px rgba(0,0,0,.5)}
-.evo-tooltip .tt-match{font-weight:700;color:var(--gold);margin-bottom:5px;font-size:.75rem}
-.evo-tooltip .tt-row{display:flex;justify-content:space-between;gap:12px;
-  padding:2px 0;border-bottom:1px solid rgba(255,255,255,.06)}
-.evo-tooltip .tt-row:last-child{border-bottom:none}
-.evo-tooltip .tt-name{font-weight:600}
-.evo-tooltip .tt-pts{color:var(--gold);font-family:'Bebas Neue',sans-serif;font-size:.9rem}
-.evo-tooltip .tt-gain{font-size:.62rem;color:var(--muted)}
-.evo-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:.5rem}
-.evo-leg-btn{display:flex;align-items:center;gap:5px;padding:4px 9px;
-  border-radius:10px;border:1px solid;background:transparent;cursor:pointer;
-  font-size:.72rem;font-family:'Inter',sans-serif;transition:all .18s;color:var(--text)}
-.evo-leg-btn.dimmed{opacity:.28}
-.evo-leg-btn .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.evo-crosshair{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.15);
-  pointer-events:none;display:none}
 </style>
 </head>
 <body>
@@ -262,7 +237,6 @@ button.go{padding:6px 14px;border-radius:8px;border:none;
   <button onclick="showTab('preds')">🔮 Predicciones</button>
   <button onclick="showTab('groups')">👥 Grupos</button>
   <button onclick="showTab('prizes')">🍺 Premio/Castigo</button>
-  <button onclick="showTab('evo')">📈 Evolución</button>
   <button onclick="showTab('admin')" style="margin-left:auto">⚙</button>
 </nav>
 <div class="main">
@@ -272,7 +246,6 @@ button.go{padding:6px 14px;border-radius:8px;border:none;
   <div id="tab-groups" style="display:none"></div>
   <div id="tab-prizes" style="display:none"></div>
   <div id="tab-admin" style="display:none"></div>
-  <div id="tab-evo" style="display:none"></div>
 </div>
 
 <script>
@@ -808,7 +781,7 @@ function parseXlsx(wb){
 // ── NAV / INIT ────────────────────────────────────────────────────────────
 function showTab(t){
   curTab=t;
-  const ids=['ranking','results','preds','groups','prizes','evo','admin'];
+  const ids=['ranking','results','preds','groups','prizes','admin'];
   document.querySelectorAll('nav button').forEach((b,i)=>{b.classList.toggle('active',ids[i]===t);});
   ids.forEach(id=>{document.getElementById('tab-'+id).style.display=id===t?'block':'none';});
   renderTab(t);
@@ -819,7 +792,6 @@ function renderTab(t){
   else if(t==='preds')renderPreds();
   else if(t==='groups')renderGroups();
   else if(t==='prizes')renderPrizes();
-  else if(t==='evo')renderEvo();
   else if(t==='admin')renderAdmin();
 }
 function updHdr(){
@@ -831,247 +803,6 @@ fetch('data.json?v='+Date.now())
   .then(r=>r.json())
   .then(d=>{D=d;renderTab('ranking');updHdr();})
   .catch(()=>{document.getElementById('sub').textContent='Error cargando datos';});
-// ── EVOLUCIÓN ─────────────────────────────────────────────────────────────
-const EVO_COLS = [
-  "#4a8fff","#ff4466","#00cc88","#aa88ff",
-  "#ffaa33","#44dd44","#ff66aa","#33aaff"
-];
-let evoHighlight = null;  // null = all shown, string = one player highlighted
-
-function renderEvo(){
-  const players = Object.keys(D.players);
-  let html = `<div class="section-hdr"><span>📈</span><span class="slabel">Evolución de Puntos</span></div>`;
-
-  // Info card
-  html += `<div class="card" style="margin-bottom:.75rem;padding:.75rem 1rem;
-    background:linear-gradient(135deg,rgba(0,40,104,.12),rgba(216,6,33,.06));
-    border-color:rgba(255,215,0,.15)">
-    <p style="font-size:.78rem;color:var(--muted);line-height:1.5">
-      Evolución acumulada de puntos en <strong style="color:#fff">orden cronológico</strong> de los partidos jugados.
-      <br>Toca la leyenda para destacar un jugador · Arrastra sobre el gráfico para ver detalles de cada partido.
-    </p>
-  </div>`;
-
-  // Chart
-  html += `<div class="evo-container">
-    <div class="evo-chart-wrap">
-      <canvas id="evo-canvas"></canvas>
-      <div class="evo-crosshair" id="evo-crosshair"></div>
-      <div class="evo-tooltip" id="evo-tooltip"></div>
-    </div>
-    <div class="evo-legend" id="evo-legend">`;
-  players.forEach((p,i)=>{
-    const col = EVO_COLS[i%EVO_COLS.length];
-    html += `<button class="evo-leg-btn" id="evobtn-${p}"
-      style="border-color:${col}22;color:${col}"
-      onclick="evoToggle('${p}')">
-      <span class="dot" style="background:${col}"></span>${p}
-    </button>`;
-  });
-  html += `</div></div>`;
-
-  // Mini ranking at this point
-  html += `<div class="section-hdr" style="margin-top:.5rem"><span>🏅</span><span class="slabel">Ranking actual</span></div>
-  <div class="card" id="evo-ranking">`;
-  const rank = [...players].sort((a,b)=>(D.players[b].total||0)-(D.players[a].total||0));
-  const top = D.players[rank[0]]?.total||1;
-  rank.forEach((p,i)=>{
-    const pts = D.players[p]?.total||0;
-    const col = EVO_COLS[players.indexOf(p)%EVO_COLS.length];
-    const bar = Math.round(pts/top*100);
-    html += `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
-      border-bottom:${i<rank.length-1?'1px solid rgba(255,255,255,.04)':'none'}">
-      <div style="width:22px;text-align:center;font-family:'Bebas Neue';font-size:.9rem;
-        color:${i===0?'var(--gold)':i===1?'var(--silver)':i===2?'var(--bronze)':'var(--muted)'}">${i+1}</div>
-      <div style="width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600">${p}</div>
-        <div style="height:3px;background:#1a2540;border-radius:2px;overflow:hidden;margin-top:3px">
-          <div style="height:100%;width:${bar}%;background:${col};border-radius:2px"></div>
-        </div>
-      </div>
-      <div style="font-family:'Bebas Neue';font-size:1.2rem;color:${col}">${pts}</div>
-    </div>`;
-  });
-  html += `</div>`;
-
-  document.getElementById('tab-evo').innerHTML = html;
-
-  // Draw chart after DOM ready
-  setTimeout(()=>{
-    drawEvoChart();
-    setupEvoInteraction();
-  }, 60);
-}
-
-function drawEvoChart(){
-  const canvas = document.getElementById('evo-canvas');
-  if(!canvas) return;
-  const dpr = window.devicePixelRatio||1;
-  const W = canvas.offsetWidth, H = canvas.offsetHeight;
-  canvas.width = W*dpr; canvas.height = H*dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr,dpr);
-
-  const players = Object.keys(D.players);
-  const scored = D.scored_chrono||[];
-  if(!scored.length){ ctx.fillStyle='var(--muted)';ctx.fillText('Sin datos',W/2,H/2); return; }
-  const n = scored.length;
-
-  const PAD = {t:12, r:14, b:28, l:38};
-  const cW = W - PAD.l - PAD.r;
-  const cH = H - PAD.t - PAD.b;
-
-  // Max points
-  const maxPts = Math.max(...players.map(p=>{
-    const h = D.players[p]?.match_history||[];
-    return h.length ? h[h.length-1].cum : 0;
-  }), 10);
-
-  // Grid
-  const gridLines = 5;
-  ctx.font = `${10*Math.min(W/400,1)}px Inter`;
-  ctx.textAlign = 'right';
-  for(let i=0; i<=gridLines; i++){
-    const v = Math.round(maxPts*i/gridLines);
-    const y = PAD.t + cH*(1-i/gridLines);
-    ctx.strokeStyle = 'rgba(255,255,255,.05)';
-    ctx.lineWidth = .5;
-    ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(W-PAD.r,y); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.3)';
-    ctx.fillText(v, PAD.l-3, y+3);
-  }
-
-  // X axis labels (every ~6 matches)
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,.25)';
-  for(let idx=0; idx<n; idx+=Math.ceil(n/8)){
-    const x = PAD.l + cW*(idx/(n-1||1));
-    const mid = scored[idx];
-    ctx.fillText(`P${mid}`, x, H-PAD.b+14);
-  }
-
-  // Lines
-  players.forEach((p,pi)=>{
-    const hist = D.players[p]?.match_history||[];
-    if(!hist.length) return;
-    const col = EVO_COLS[pi%EVO_COLS.length];
-    const hl = (evoHighlight===null || evoHighlight===p);
-    ctx.globalAlpha = hl ? 1 : 0.1;
-    ctx.strokeStyle = col;
-    ctx.lineWidth = hl ? 2.5 : 1;
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    hist.forEach((pt,idx)=>{
-      const x = PAD.l + cW*(idx/(n-1||1));
-      const y = PAD.t + cH*(1-pt.cum/maxPts);
-      idx===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-    });
-    ctx.stroke();
-    // End label
-    if(hl){
-      const last = hist[hist.length-1];
-      const lx = PAD.l + cW*((hist.length-1)/(n-1||1));
-      const ly = PAD.t + cH*(1-last.cum/maxPts);
-      // Dot
-      ctx.beginPath(); ctx.arc(lx,ly,hl?4.5:2.5,0,Math.PI*2);
-      ctx.fillStyle = col; ctx.fill();
-      // Label (only when highlighted)
-      if(evoHighlight===p){
-        ctx.font = 'bold 10px Inter';
-        ctx.fillStyle = col;
-        ctx.textAlign = lx > W-60 ? 'right' : 'left';
-        ctx.fillText(`${p} ${last.cum}`, lx + (lx>W-60?-7:7), ly-5);
-      }
-    }
-    ctx.globalAlpha = 1;
-  });
-}
-
-function evoToggle(p){
-  evoHighlight = evoHighlight===p ? null : p;
-  // Update button styles
-  Object.keys(D.players).forEach((player,i)=>{
-    const btn = document.getElementById(`evobtn-${player}`);
-    if(!btn) return;
-    btn.classList.toggle('dimmed', evoHighlight!==null && evoHighlight!==player);
-  });
-  drawEvoChart();
-}
-
-function setupEvoInteraction(){
-  const canvas = document.getElementById('evo-canvas');
-  const tooltip = document.getElementById('evo-tooltip');
-  const crosshair = document.getElementById('evo-crosshair');
-  if(!canvas||!tooltip||!crosshair) return;
-
-  const players = Object.keys(D.players);
-  const scored = D.scored_chrono||[];
-  if(!scored.length) return;
-
-  function showTooltip(clientX, clientY){
-    const rect = canvas.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const W = canvas.offsetWidth, H = canvas.offsetHeight;
-    const PAD = {t:12, r:14, b:28, l:38};
-    const cW = W-PAD.l-PAD.r;
-    const n = scored.length;
-
-    // Find nearest match index
-    const relX = x - PAD.l;
-    const idx = Math.round(relX/(cW/(n-1||1)));
-    const clampedIdx = Math.max(0, Math.min(n-1, idx));
-    const mid = scored[clampedIdx];
-
-    if(!mid) return;
-    const lbl = (D.match_labels||{})[String(mid)] || `Partido ${mid}`;
-
-    // Crosshair position
-    const cx = PAD.l + cW*(clampedIdx/(n-1||1));
-    crosshair.style.left = cx+'px';
-    crosshair.style.display = 'block';
-
-    // Build tooltip rows sorted by current pts
-    const rows = players.map((p,pi)=>{
-      const hist = D.players[p]?.match_history||[];
-      const entry = hist[clampedIdx];
-      return {p, pi, cum: entry?.cum||0, pts: entry?.pts||0};
-    }).sort((a,b)=>b.cum-a.cum);
-
-    let ttHtml = `<div class="tt-match">⚽ ${lbl}</div>`;
-    rows.forEach((r,rank)=>{
-      const col = EVO_COLS[r.pi%EVO_COLS.length];
-      const gain = r.pts>0 ? `+${r.pts}` : '–';
-      ttHtml += `<div class="tt-row">
-        <span class="tt-name" style="color:${col}">${rank+1}. ${r.p}</span>
-        <span><span class="tt-pts">${r.cum}</span> <span class="tt-gain">(${gain})</span></span>
-      </div>`;
-    });
-    tooltip.innerHTML = ttHtml;
-    tooltip.style.display = 'block';
-
-    // Position tooltip
-    const ttW = 230;
-    let ttLeft = cx+10;
-    if(ttLeft+ttW > W) ttLeft = cx-ttW-10;
-    tooltip.style.left = ttLeft+'px';
-    tooltip.style.top = '10px';
-  }
-
-  function hideTooltip(){
-    tooltip.style.display = 'none';
-    crosshair.style.display = 'none';
-  }
-
-  canvas.addEventListener('mousemove', e=>showTooltip(e.clientX,e.clientY));
-  canvas.addEventListener('mouseleave', hideTooltip);
-  canvas.addEventListener('touchstart', e=>{e.preventDefault();showTooltip(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
-  canvas.addEventListener('touchmove', e=>{e.preventDefault();showTooltip(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
-  canvas.addEventListener('touchend', ()=>setTimeout(hideTooltip,1500));
-
-  // Redraw on resize
-  window.addEventListener('resize', drawEvoChart, {passive:true});
-}
 </script>
 </body>
 </html>
