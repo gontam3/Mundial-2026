@@ -808,7 +808,7 @@ function parseXlsx(wb){
 // ── NAV / INIT ────────────────────────────────────────────────────────────
 function showTab(t){
   curTab=t;
-  const ids=['ranking','results','preds','groups','prizes','admin'];
+  const ids=['ranking','results','preds','groups','prizes','evo','admin'];
   document.querySelectorAll('nav button').forEach((b,i)=>{b.classList.toggle('active',ids[i]===t);});
   ids.forEach(id=>{document.getElementById('tab-'+id).style.display=id===t?'block':'none';});
   renderTab(t);
@@ -819,7 +819,7 @@ function renderTab(t){
   else if(t==='preds')renderPreds();
   else if(t==='groups')renderGroups();
   else if(t==='prizes')renderPrizes();
-  else if (t === 'evo') renderEvo();
+  else if(t==='evo')renderEvo();
   else if(t==='admin')renderAdmin();
 }
 function updHdr(){
