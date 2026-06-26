@@ -711,25 +711,44 @@ function evoDrawChart(hoverIdx){
     ctx.setLineDash([]);
   }
 
-  // Lines
+  // Lines — use total hist length for consistent x positioning
+  const histLen=D.players[Object.keys(D.players)[0]]?.match_history?.length||n;
   players.forEach((p,pi)=>{
     const hist=D.players[p]?.match_history||[];
     if(!hist.length)return;
     const col=ECOLS[pi%ECOLS.length];
     const hl=(evoHL===null||evoHL===pi);
     ctx.globalAlpha=hl?1:.08;
-    ctx.strokeStyle=col;ctx.lineWidth=hl?2.5:1;ctx.lineJoin='round';
+    ctx.lineJoin='round';ctx.setLineDash([]);
+
+    // Solid line for match points (excluding bonus point)
+    const matchHist=hist.filter(h=>!h.isBonus);
+    const bonusEntry=hist.find(h=>h.isBonus);
+    ctx.strokeStyle=col;ctx.lineWidth=hl?2.5:1;
     ctx.beginPath();
-    hist.forEach((pt,idx)=>{
-      const x=PAD.l+cW*(idx/(n-1||1));
+    matchHist.forEach((pt,idx)=>{
+      const x=PAD.l+cW*(idx/(histLen-1||1));
       const y=PAD.t+cH*(1-pt.cum/maxPts);
       idx===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
     });
     ctx.stroke();
+
+    // Dashed line for group classification bonus
+    if(bonusEntry&&matchHist.length){
+      const lastM=matchHist[matchHist.length-1];
+      const x1=PAD.l+cW*((matchHist.length-1)/(histLen-1||1));
+      const y1=PAD.t+cH*(1-lastM.cum/maxPts);
+      const x2=PAD.l+cW*((hist.length-1)/(histLen-1||1));
+      const y2=PAD.t+cH*(1-bonusEntry.cum/maxPts);
+      ctx.setLineDash([5,3]);ctx.lineWidth=hl?1.8:.6;
+      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // Hover dot
     if(hl&&hoverIdx!=null&&hoverIdx<hist.length){
       const pt=hist[hoverIdx];
-      const hx=PAD.l+cW*(hoverIdx/(n-1||1));
+      const hx=PAD.l+cW*(hoverIdx/(histLen-1||1));
       const hy=PAD.t+cH*(1-pt.cum/maxPts);
       ctx.beginPath();ctx.arc(hx,hy,5,0,Math.PI*2);
       ctx.fillStyle=col;ctx.fill();
@@ -737,8 +756,9 @@ function evoDrawChart(hoverIdx){
     // End dot + label
     if(hl){
       const last=hist[hist.length-1];
-      const ex=PAD.l+cW*((hist.length-1)/(n-1||1));
+      const ex=PAD.l+cW*((hist.length-1)/(histLen-1||1));
       const ey=PAD.t+cH*(1-last.cum/maxPts);
+      ctx.setLineDash([]);
       ctx.beginPath();ctx.arc(ex,ey,hl&&evoHL===pi?5:3,0,Math.PI*2);
       ctx.fillStyle=col;ctx.fill();
       if(evoHL===pi){
@@ -748,15 +768,22 @@ function evoDrawChart(hoverIdx){
         ctx.fillText(`${p} ${last.cum}`,ex+(ex>W-70?-8:8),ey-6);
       }
     }
-    ctx.globalAlpha=1;
+    ctx.globalAlpha=1;ctx.setLineDash([]);
   });
 
-  // X axis: match numbers at intervals
+  // X axis: match numbers at intervals (use match points only, not bonus)
   ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,.2)';ctx.font='8px Inter';
-  const step=Math.ceil(n/10);
-  for(let idx=0;idx<n;idx+=step){
-    const x=PAD.l+cW*(idx/(n-1||1));
-    ctx.fillText(`P${scored[idx]}`,x,H-PAD.b+14);
+  const matchOnly=scored.filter(m=>m>0);
+  const stepX=Math.ceil(matchOnly.length/10);
+  for(let idx=0;idx<matchOnly.length;idx+=stepX){
+    const x=PAD.l+cW*(idx/(histLen-1||1));
+    ctx.fillText(`P${matchOnly[idx]}`,x,H-PAD.b+14);
+  }
+  // Label bonus step
+  if(histLen>matchOnly.length){
+    const bx=PAD.l+cW*((histLen-1)/(histLen-1||1));
+    ctx.fillStyle='rgba(255,215,0,.4)';
+    ctx.fillText('GRP',bx,H-PAD.b+14);
   }
 }
 
@@ -797,8 +824,9 @@ function evoSetupInteraction(){
     const W=wrap.offsetWidth;
     const PAD={l:42,r:16};
     const cW=W-PAD.l-PAD.r;
+    const totalLen=D.players[Object.keys(D.players)[0]]?.match_history?.length||n;
     const relX=clientX-rect.left-PAD.l;
-    return Math.max(0,Math.min(n-1,Math.round(relX/cW*(n-1))));
+    return Math.max(0,Math.min(totalLen-1,Math.round(relX/cW*(totalLen-1))));
   }
 
   function show(clientX){
@@ -816,7 +844,7 @@ function evoSetupInteraction(){
     const rows=players.map((p,pi)=>{
       const hist=D.players[p]?.match_history||[];
       const entry=hist[idx]||hist[hist.length-1]||{cum:0,pts:0};
-      return{p,pi,cum:entry.cum,gain:entry.pts};
+      return{p,pi,cum:entry.cum,gain:entry.pts,isBonus:entry.isBonus||false};
     }).sort((a,b)=>b.cum-a.cum);
 
     let ttHtml=`<div class="tt-match">⚽ ${lbl}</div>`;
@@ -1070,6 +1098,12 @@ function parseXlsx(wb){
       cum+=pts;
       match_history.push({mid,pts,cum,lbl:matchLabels[String(mid)]||`P${mid}`});
     });
+    // Add group classification bonus so graph reaches Excel total
+    const group_extra=total-cum;
+    if(match_history.length&&group_extra>0){
+      match_history.push({mid:0,pts:group_extra,cum:total,
+        lbl:`Clasificación de grupos (+${group_extra}pts)`,isBonus:true});
+    }
 
     // Groups breakdown
     const groups_breakdown={};

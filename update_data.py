@@ -144,6 +144,14 @@ def run(excel_path, out_path="data.json"):
             cumulative+=pts
             match_history.append({"mid":mid_int,"pts":pts,"cum":cumulative,
                                    "lbl":match_label(mid_int,official)})
+        # Add group classification points as final step so graph reaches Excel total
+        # This includes position pts + bonus + team exact pts
+        excel_total=int(ws["E459"].value or 0) if ws["E459"] else 0
+        if match_history:
+            group_extra=excel_total-cumulative
+            if group_extra>0:
+                match_history.append({"mid":0,"pts":group_extra,"cum":excel_total,
+                                       "lbl":f"Clasificación de grupos (+{group_extra}pts)"})
 
         # Group breakdown
         groups_breakdown={}
@@ -190,3 +198,7 @@ def run(excel_path, out_path="data.json"):
 if __name__=="__main__":
     if len(sys.argv)<2: print("Uso: python update_data.py <archivo.xlsx>"); sys.exit(1)
     run(sys.argv[1],"data.json")
+
+# NOTE: patch applied - add group classification bonus to match_history
+# (This block is handled inline in the run() function below, 
+#  see the match_history.append at the end)
